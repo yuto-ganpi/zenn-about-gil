@@ -1,0 +1,98 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  worker-gil:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        PYTHON_VERSION: "3.14.2"
+        DISABLE_GIL: "0"
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: rpc://
+      GIL_MODE: gil
+      TIMEOUT_USE_SIGNALS: "0"
+      PYTHON_GIL: "1"
+      DUCKDB_THREADS: "1"
+      LOG_LEVEL: INFO
+      PYTHONPATH: /app
+    depends_on:
+      - rabbitmq
+    volumes:
+      - ./app:/app
+    command: >-
+      celery -A celery_app worker -l info -Q gil -n worker_gil@%h --pool=solo
+
+  worker-gil-clean:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        PYTHON_VERSION: "3.14.2"
+        DISABLE_GIL: "0"
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: rpc://
+      GIL_MODE: gil-clean
+      TIMEOUT_USE_SIGNALS: "0"
+      CLEANUP_CHILDREN: "1"
+      PYTHON_GIL: "1"
+      DUCKDB_THREADS: "1"
+      LOG_LEVEL: INFO
+      PYTHONPATH: /app
+    depends_on:
+      - rabbitmq
+    volumes:
+      - ./app:/app
+    command: >-
+      celery -A celery_app worker -l info -Q gil-clean -n worker_gil_clean@%h --pool=solo
+
+  worker-nogil:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        PYTHON_VERSION: "3.14.2"
+        DISABLE_GIL: "1"
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: rpc://
+      GIL_MODE: nogil
+      TIMEOUT_USE_SIGNALS: "1"
+      PYTHON_GIL: "0"
+      DUCKDB_THREADS: "1"
+      LOG_LEVEL: INFO
+      PYTHONPATH: /app
+    depends_on:
+      - rabbitmq
+    volumes:
+      - ./app:/app
+    command: >-
+      celery -A celery_app worker -l info -Q nogil -n worker_nogil@%h --pool=solo
+
+  producer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        PYTHON_VERSION: "3.14.2"
+        DISABLE_GIL: "0"
+    environment:
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: rpc://
+      ITERATIONS: "10"
+      DUCKDB_ROWS: "500000000"
+      DUCKDB_TIMEOUT: "2"
+      TARGET_QUEUES: "gil,nogil"
+      PYTHONPATH: /app
+    depends_on:
+      - rabbitmq
+    volumes:
+      - ./app:/app
+    command: >-
+      python3 /app/producer.py
